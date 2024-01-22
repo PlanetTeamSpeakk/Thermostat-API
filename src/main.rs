@@ -1,10 +1,14 @@
-use std::{path::Path, fs, collections::HashMap, sync::RwLock};
+use std::{path::Path, fs};
 use actix_web::{Responder, get, HttpServer, App, web, patch, middleware::Logger};
-use const_format::concatcp;
+use tokio::sync::RwLock;
+
+pub mod heater;
+pub mod pc;
+pub mod metrics;
+pub mod heatman;
 
 const CONFIG_PATH: &str = "heater_config.json";
-const PLUG_ENDPOINT: &str = "http://192.168.178.86/rpc/"; // RPC endpoint of my Shelly Plus Plug S managing power to my heater.
-const STATUS_ENDPOINT: &str = concatcp!(PLUG_ENDPOINT, "Shelly.GetStatus"); // Status endpoint of the plug.
+
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -18,6 +22,9 @@ async fn main() -> std::io::Result<()> {
         else { None };
     let config = config.map_or(Config::default(), |s| serde_json::from_str(&s).unwrap());
     let config_data = web::Data::new(RwLock::new(config));
+
+    // Start heater manager.
+    heatman::start(config_data.clone());
 
     // Create and start server.
     HttpServer::new(move || {
@@ -34,7 +41,7 @@ async fn main() -> std::io::Result<()> {
 
 #[get("/")]
 async fn get_config_and_state(config: web::Data<RwLock<Config>>, query: web::Query<GetConfigAndStateQuery>) -> Result<impl Responder, Box<dyn std::error::Error>> {
-    let config = config.read().unwrap();
+    let config = config.read().await;
     send_config_and_state(if query.include_config.unwrap_or(false) { Some(&*config) } else { None }).await
 }
 
@@ -45,25 +52,21 @@ async fn patch_config(config: web::Data<RwLock<Config>>, new_config: web::Json<C
     fs::write(CONFIG_PATH, serde_json::to_string(&new_config)?)?; // Write config
 
     // Update config
-    let mut config = config.write().unwrap();
+    let mut config = config.write().await;
     *config = new_config;
     println!("Updated config to {:?}", *config);
+
+    heatman::check_heater(&new_config).await;
 
     send_config_and_state(Some(&*config)).await
 }
 
 async fn send_config_and_state(config: Option<&Config>) -> Result<impl Responder, Box<dyn std::error::Error>> {
     // Get metrics
-    let metrics = get_metrics().await?;
-    let temperature = metrics.get("temperature").unwrap().parse().unwrap();
-    let co2 = metrics.get("co2").unwrap().parse::<f32>().unwrap() as i32;
+    let (temperature, co2) = metrics::get_temp_and_co2().await?;
 
     // Check if heater is on
-    let resp = reqwest::get(STATUS_ENDPOINT).await?.json::<serde_json::Map<String, serde_json::Value>>().await?;
-    let is_heating = resp.get("switch:0").unwrap()
-        .as_object().unwrap()
-        .get("output").unwrap()
-        .as_bool().unwrap();
+    let is_heating = heater::is_on().await?;
 
     // Formulate response
     let resp = GetConfigAndStateResp {
@@ -75,28 +78,13 @@ async fn send_config_and_state(config: Option<&Config>) -> Result<impl Responder
     Ok(web::Json(resp))
 }
 
-async fn get_metrics() -> Result<HashMap<String, String>, reqwest::Error> {
-    let resp = reqwest::get("http://localhost:8000").await?;
-    let body = resp.text().await?;
-
-    let metrics = body
-        .lines()
-        .filter(|line| !line.starts_with("#"))
-        .map(|line| line.split(" ").collect::<Vec<_>>())
-        .filter(|pair| pair.len() == 2)
-        .map(|pair| (pair[0].to_string(), pair[1].to_string()))
-        .collect();
-    
-    Ok(metrics)
-}
-
 #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug)]
-struct Config {
+pub struct Config {
     master_switch: bool,
     force: bool,
     target_temp: f32,
-    co2_target: i32,
+    co2_target: Option<i32>,
 }
 
 impl Default for Config {
@@ -105,7 +93,7 @@ impl Default for Config {
             master_switch: true,
             force: false,
             target_temp: 28.0,
-            co2_target: 500,
+            co2_target: Some(500),
         }
     }
 }
