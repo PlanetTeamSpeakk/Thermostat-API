@@ -94,7 +94,7 @@ impl Default for Config {
         Self {
             master_switch: true,
             force: false,
-            target_temp: 28.0,
+            target_temp: 18.0,
             co2_target: Some(500),
         }
     }
