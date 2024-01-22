@@ -3,8 +3,8 @@ use actix_web::{Responder, get, HttpServer, App, web, patch, middleware::Logger}
 use const_format::concatcp;
 
 const CONFIG_PATH: &str = "heater_config.json";
-const PLUG_ENDPOINT: &str = "http://192.168.178.86/rpc/";
-const STATUS_ENDPOINT: &str = concatcp!(PLUG_ENDPOINT, "Shelly.GetStatus");
+const PLUG_ENDPOINT: &str = "http://192.168.178.86/rpc/"; // RPC endpoint of my Shelly Plus Plug S managing power to my heater.
+const STATUS_ENDPOINT: &str = concatcp!(PLUG_ENDPOINT, "Shelly.GetStatus"); // Status endpoint of the plug.
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -19,6 +19,7 @@ async fn main() -> std::io::Result<()> {
     let config = config.map_or(Config::default(), |s| serde_json::from_str(&s).unwrap());
     let config_data = web::Data::new(Mutex::new(config));
 
+    // Create and start server.
     HttpServer::new(move || {
         App::new()
             .app_data(config_data.clone())
@@ -34,7 +35,6 @@ async fn main() -> std::io::Result<()> {
 #[get("/")]
 async fn get_config_and_state(config: web::Data<Mutex<Config>>, query: web::Query<GetConfigAndStateQuery>) -> Result<impl Responder, Box<dyn std::error::Error>> {
     let config = config.lock().unwrap();
-    println!("Sending config: {:?}", *config);
     send_config_and_state(if query.include_config.unwrap_or(false) { Some(&*config) } else { None }).await
 }
 
@@ -42,10 +42,13 @@ async fn get_config_and_state(config: web::Data<Mutex<Config>>, query: web::Quer
 async fn patch_config(config: web::Data<Mutex<Config>>, new_config: web::Json<Config>) -> Result<impl Responder, Box<dyn std::error::Error>> {
     let new_config = new_config.into_inner();
 
-    fs::write(CONFIG_PATH, serde_json::to_string(&new_config)?)?;
+    fs::write(CONFIG_PATH, serde_json::to_string(&new_config)?)?; // Write config
+
+    // Update config
     let mut config = config.lock().unwrap();
     *config = new_config;
     println!("Updated config to {:?}", *config);
+    
     send_config_and_state(Some(&*config)).await
 }
 
