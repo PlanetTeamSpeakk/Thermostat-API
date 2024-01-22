@@ -1,4 +1,4 @@
-use std::{path::Path, fs, collections::HashMap, sync::Mutex};
+use std::{path::Path, fs, collections::HashMap, sync::RwLock};
 use actix_web::{Responder, get, HttpServer, App, web, patch, middleware::Logger};
 use const_format::concatcp;
 
@@ -17,7 +17,7 @@ async fn main() -> std::io::Result<()> {
         if Path::new(CONFIG_PATH).exists() { Some(fs::read_to_string(CONFIG_PATH)?) }
         else { None };
     let config = config.map_or(Config::default(), |s| serde_json::from_str(&s).unwrap());
-    let config_data = web::Data::new(Mutex::new(config));
+    let config_data = web::Data::new(RwLock::new(config));
 
     // Create and start server.
     HttpServer::new(move || {
@@ -33,22 +33,22 @@ async fn main() -> std::io::Result<()> {
 }
 
 #[get("/")]
-async fn get_config_and_state(config: web::Data<Mutex<Config>>, query: web::Query<GetConfigAndStateQuery>) -> Result<impl Responder, Box<dyn std::error::Error>> {
-    let config = config.lock().unwrap();
+async fn get_config_and_state(config: web::Data<RwLock<Config>>, query: web::Query<GetConfigAndStateQuery>) -> Result<impl Responder, Box<dyn std::error::Error>> {
+    let config = config.read().unwrap();
     send_config_and_state(if query.include_config.unwrap_or(false) { Some(&*config) } else { None }).await
 }
 
 #[patch("/")]
-async fn patch_config(config: web::Data<Mutex<Config>>, new_config: web::Json<Config>) -> Result<impl Responder, Box<dyn std::error::Error>> {
+async fn patch_config(config: web::Data<RwLock<Config>>, new_config: web::Json<Config>) -> Result<impl Responder, Box<dyn std::error::Error>> {
     let new_config = new_config.into_inner();
 
     fs::write(CONFIG_PATH, serde_json::to_string(&new_config)?)?; // Write config
 
     // Update config
-    let mut config = config.lock().unwrap();
+    let mut config = config.write().unwrap();
     *config = new_config;
     println!("Updated config to {:?}", *config);
-    
+
     send_config_and_state(Some(&*config)).await
 }
 
