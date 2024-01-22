@@ -14,6 +14,8 @@ const CONFIG_PATH: &str = "heater_config.json";
 async fn main() -> std::io::Result<()> {
     #[cfg(debug_assertions)]
     std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug");
+    #[cfg(not(debug_assertions))]
+    std::env::set_var("RUST_LOG", "actix_web=info,actix_server=debug");
     env_logger::init();
 
     // Read config
