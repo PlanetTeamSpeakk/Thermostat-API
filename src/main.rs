@@ -54,13 +54,15 @@ async fn patch_config(config: web::Data<RwLock<Config>>, new_config: web::Json<C
     fs::write(CONFIG_PATH, serde_json::to_string(&new_config)?)?; // Write config
 
     // Update config
-    let mut config = config.write().await;
-    *config = new_config;
-    println!("Updated config to {:?}", *config);
+    {   // Block for lock to be dropped
+        let mut config = config.write().await;
+        *config = new_config;
+    }
+    println!("Updated config to {:?}", &new_config);
 
     heatman::check_heater(&new_config).await;
 
-    send_config_and_state(Some(&*config)).await
+    send_config_and_state(Some(&new_config)).await
 }
 
 async fn send_config_and_state(config: Option<&Config>) -> Result<impl Responder, Box<dyn std::error::Error>> {
