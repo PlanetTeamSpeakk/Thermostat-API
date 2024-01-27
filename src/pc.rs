@@ -9,8 +9,17 @@ const WINLOCK_ENDPOINT: &str = concatcp!("http://", PC_IP_STR, ":26969/"); // Wi
 /// Returns whether the PC is currently on.
 pub async fn is_on() -> Result<bool, ping::Error> {
     let ip = IpAddr::V4(Ipv4Addr::from_str(PC_IP_STR).unwrap());
-    ping(ip, Some(Duration::from_secs(1)), None, None, None, None)?;
-    Ok(true)
+    let res = ping(ip, Some(Duration::from_secs(1)), None, None, None, None);
+
+    if let Err(err) = res {
+        if let ping::Error::IoError { error: _ } = err {
+            return Ok(false); // PC is off (timeout).
+        } else {
+            return Err(err); // Some unexpected error occured.
+        }
+    } else {
+        Ok(true) // PC is on.
+    }
 }
 
 /// Returns whether the PC is currently locked.
