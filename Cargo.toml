@@ -6,12 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.4.1"
+actix-web = "4.8.0"
 const_format = "0.2.32"
-env_logger = "0.11.0"
-ping = "0.5.1"
-reqwest = { version = "0.11.23", default-features = false, features = ["json"] } # Exclude TLS as we only make requests to local IPs.
-serde = { version = "1.0.195", features = ["derive"] }
-serde_json = "1.0.111"
-tokio = "1.35.1"
+env_logger = "0.11.3"
+log = "0.4.21"
+ping = "0.5.2"
+reqwest = { version = "0.12.5", default-features = false, features = ["json"] } # Exclude TLS as we only make requests to local IPs.
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.118"
+tokio = "1.38.0"
 tristate = "0.1.1"

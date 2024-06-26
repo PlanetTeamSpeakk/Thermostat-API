@@ -1,4 +1,5 @@
 use std::time::Duration;
+use log::{error, info};
 use tokio::{sync::RwLock, time::interval};
 use crate::{heater, metrics, pc, Config};
 
@@ -6,14 +7,14 @@ use crate::{heater, metrics, pc, Config};
 /// Spawns a new tokio task that periodically checks the heater status and turns it on or off.
 pub fn start(config: actix_web::web::Data<RwLock<Config>>) {
     tokio::spawn(async move {
-        println!("HeatMan started.");
+        info!("HeatMan started.");
 
         let mut interval = interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
 
             let config = config.read().await;
-            check_heater(&*config).await;
+            check_heater(&config).await;
         }
     });
 }
@@ -27,7 +28,7 @@ pub async fn check_heater(config: &Config) {
     // Check if heater should be on.
     let should_be_on = should_be_on(config).await;
     if let Err(e) = should_be_on {
-        println!("Error while checking if heater should be on: {}", e);
+        error!("Error while checking if heater should be on: {}", e);
         return;
     }
     let should_be_on = should_be_on.unwrap();
@@ -35,7 +36,7 @@ pub async fn check_heater(config: &Config) {
     // Check if heater is on.
     let is_on = heater::is_on().await;
     if let Err(e) = is_on {
-        println!("Error while checking if heater is on: {}", e);
+        error!("Error while checking if heater is on: {}", e);
         return;
     }
     let is_on = is_on.unwrap();
@@ -44,11 +45,11 @@ pub async fn check_heater(config: &Config) {
     if should_be_on != is_on {
         let switch_result = heater::switch(should_be_on).await;
         if let Err(e) = switch_result {
-            println!("Error while switching heater: {}", e);
+            error!("Error while switching heater: {}", e);
             return;
         }
 
-        println!("Switched heater {}", if should_be_on { "on" } else { "off" });
+        info!("Switched heater {}", if should_be_on { "on" } else { "off" });
     }
 }
 

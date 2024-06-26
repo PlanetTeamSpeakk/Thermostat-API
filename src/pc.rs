@@ -1,6 +1,6 @@
 use std::{net::{IpAddr, Ipv4Addr}, time::Duration, str::FromStr};
 use const_format::concatcp;
-use ping::rawsock::ping; // TODO: we should use dgramsock::ping here as rawsock requires sudo, but dgramsock seems to be broken. 
+use ping::dgramsock::ping; // TODO: we should use dgramsock::ping here as rawsock requires sudo, but dgramsock seems to be broken. 
 use tristate::TriState;
 
 const PC_IP_STR: &str = "192.168.178.89"; // Local static IP of my PC.
@@ -13,9 +13,9 @@ pub async fn is_on() -> Result<bool, ping::Error> {
 
     if let Err(err) = res {
         if let ping::Error::IoError { error: _ } = err {
-            return Ok(false); // PC is off (timeout).
+            Ok(false) // PC is off (timeout).
         } else {
-            return Err(err); // Some unexpected error occured.
+            Err(err) // Some unexpected error occured.
         }
     } else {
         Ok(true) // PC is on.
@@ -26,12 +26,12 @@ pub async fn is_on() -> Result<bool, ping::Error> {
 /// Returns `TriState::Unknown` if the request failed.
 pub async fn is_locked() -> TriState {
     let resp = reqwest::get(WINLOCK_ENDPOINT).await;
-    if let Err(_) = resp {
+    if resp.is_err() {
         return TriState::Unknown;
     }
 
     let body = resp.unwrap().text().await;
-    if let Err(_) = body {
+    if body.is_err() {
         return TriState::Unknown;
     }
 

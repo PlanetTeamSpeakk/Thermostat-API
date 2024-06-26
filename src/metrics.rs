@@ -16,8 +16,8 @@ pub async fn get_metrics() -> Result<HashMap<String, String>, reqwest::Error> {
 
     let metrics = body
         .lines()
-        .filter(|line| !line.starts_with("#"))
-        .map(|line| line.split(" ").collect::<Vec<_>>())
+        .filter(|line| !line.starts_with('#'))
+        .map(|line| line.split(' ').collect::<Vec<_>>())
         .filter(|pair| pair.len() == 2)
         .map(|pair| (pair[0].to_string(), pair[1].to_string()))
         .collect();

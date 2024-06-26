@@ -1,5 +1,6 @@
 use std::{path::Path, fs};
 use actix_web::{Responder, get, HttpServer, App, web, patch, middleware::Logger};
+use log::info;
 use tokio::sync::RwLock;
 
 pub mod heater;
@@ -9,6 +10,10 @@ pub mod heatman;
 
 const CONFIG_PATH: &str = "heater_config.json";
 
+#[cfg(debug_assertions)]
+const PORT: u16 = 5568;
+#[cfg(not(debug_assertions))]
+const PORT: u16 = 5567;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -36,7 +41,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_config_and_state)
             .service(patch_config)
     })
-    .bind(("0.0.0.0", 5567))?
+    .bind(("0.0.0.0", PORT))?
     .run()
     .await
 }
@@ -54,11 +59,9 @@ async fn patch_config(config: web::Data<RwLock<Config>>, new_config: web::Json<C
     fs::write(CONFIG_PATH, serde_json::to_string(&new_config)?)?; // Write config
 
     // Update config
-    {   // Block for lock to be dropped
-        let mut config = config.write().await;
-        *config = new_config;
-    }
-    println!("Updated config to {:?}", &new_config);
+    let mut config = config.write().await;
+    *config = new_config;
+    info!("Updated config to {:?}", &new_config);
 
     heatman::check_heater(&new_config).await;
 
