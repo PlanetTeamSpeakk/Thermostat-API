@@ -65,7 +65,9 @@ async fn patch_config(state: web::Data<RwLock<State>>, new_config: web::Json<Con
     state.write().await.config = new_config;
     info!("Updated config to {:?}", &new_config);
 
-    heatman::check_heater(&new_config).await?;
+    if state.read().await.available {
+        heatman::check_heater(&new_config).await?;
+    }
 
     send_config_and_state(&*state.read().await, true).await
 }
