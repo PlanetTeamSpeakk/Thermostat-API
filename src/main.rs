@@ -1,6 +1,6 @@
 use std::{path::Path, fs};
 use actix_web::{Responder, get, HttpServer, App, web, patch, middleware::Logger};
-use log::info;
+use log::{error, info};
 use tokio::sync::RwLock;
 
 pub mod heater;
@@ -28,15 +28,16 @@ async fn main() -> anyhow::Result<()> {
         if Path::new(CONFIG_PATH).exists() { Some(fs::read_to_string(CONFIG_PATH)?) }
         else { None };
     let config = config.map_or(Config::default(), |s| serde_json::from_str(&s).unwrap());
-    let config_data = web::Data::new(RwLock::new(config));
+    let state = State { config, available: true };
+    let state_data = web::Data::new(RwLock::new(state));
 
     // Start heater manager.
-    heatman::start(config_data.clone());
+    heatman::start(state_data.clone());
 
     // Create and start server.
     HttpServer::new(move || {
         App::new()
-            .app_data(config_data.clone())
+            .app_data(state_data.clone())
             .wrap(Logger::default())
             .service(get_config_and_state)
             .service(patch_config)
@@ -49,40 +50,46 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[get("/")]
-async fn get_config_and_state(config: web::Data<RwLock<Config>>, query: web::Query<GetConfigAndStateQuery>) -> Result<impl Responder> {
-    let config = config.read().await;
-    send_config_and_state(if query.include_config.unwrap_or(false) { Some(&*config) } else { None }).await
+async fn get_config_and_state(state: web::Data<RwLock<State>>, query: web::Query<Query>) -> Result<impl Responder> {
+    let state = state.read().await;
+    send_config_and_state(&state, query.include_config.unwrap_or(false)).await
 }
 
 #[patch("/")]
-async fn patch_config(config: web::Data<RwLock<Config>>, new_config: web::Json<Config>) -> Result<impl Responder> {
+async fn patch_config(state: web::Data<RwLock<State>>, new_config: web::Json<Config>) -> Result<impl Responder> {
     let new_config = new_config.into_inner();
 
     fs::write(CONFIG_PATH, serde_json::to_string(&new_config)?)?; // Write config
 
     // Update config
-    let mut config = config.write().await;
-    *config = new_config;
+    state.write().await.config = new_config;
     info!("Updated config to {:?}", &new_config);
 
     heatman::check_heater(&new_config).await?;
 
-    send_config_and_state(Some(&new_config)).await
+    send_config_and_state(&*state.read().await, true).await
 }
 
-async fn send_config_and_state(config: Option<&Config>) -> Result<impl Responder> {
+async fn send_config_and_state(state: &State, include_config: bool) -> Result<impl Responder> {
     // Get metrics
     let (temperature, co2) = metrics::get_temp_and_co2().await?;
 
     // Check if heater is on
-    let is_heating = heater::is_on().await?;
+    let is_heating = if state.available { heater::is_on().await? } else { false };
 
     // Formulate response
-    let resp = GetConfigAndStateResp {
-        config: config.cloned(),
-        temperature,
-        co2,
-        is_heating,
+    let resp = Response {
+        success: true,
+        data: Some(ResponseData {
+            config: if include_config { Some(state.config) } else { None },
+            available: state.available,
+            state: ResponseStateData {
+                temperature,
+                co2,
+                is_heating,
+            }
+        }),
+        error: None,
     };
     Ok(web::Json(resp))
 }
@@ -108,18 +115,36 @@ impl Default for Config {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-struct GetConfigAndStateQuery {
+struct Query {
     include_config: Option<bool>
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-struct GetConfigAndStateResp {
+struct Response {
+    success: bool,
+    data: Option<ResponseData>,
+    error: Option<String>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct ResponseData {
     config: Option<Config>,
+    available: bool,
+    state: ResponseStateData,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct ResponseStateData {
     temperature: f32,
     co2: i32,
     is_heating: bool,
 }
 
+#[derive(Copy, Clone, Default, Debug)]
+pub struct State {
+    config: Config,
+    available: bool,
+}
 
 pub type Result<T> = std::result::Result<T, AHError>;
 
@@ -136,5 +161,15 @@ pub enum AHError {
 impl actix_web::ResponseError for AHError {
     fn status_code(&self) -> actix_web::http::StatusCode {
         actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
+    }
+    
+    fn error_response(&self) -> actix_web::HttpResponse {
+        error!("Error on request: {:?}", self);
+        actix_web::HttpResponse::InternalServerError()
+            .json(Response {
+                success: false,
+                data: None,
+                error: Some(self.to_string()),
+            })
     }
 }

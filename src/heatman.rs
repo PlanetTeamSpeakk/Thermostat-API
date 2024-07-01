@@ -1,11 +1,11 @@
 use std::time::Duration;
-use log::{error, info};
+use log::info;
 use tokio::{sync::RwLock, time::interval};
-use crate::{heater, metrics, pc, Config};
+use crate::{heater, metrics, pc, Config, State};
 
 /// Starts the heater manager loop.
 /// Spawns a new tokio task that periodically checks the heater status and turns it on or off.
-pub fn start(config: actix_web::web::Data<RwLock<Config>>) {
+pub fn start(state: actix_web::web::Data<RwLock<State>>) {
     tokio::spawn(async move {
         info!("HeatMan started.");
 
@@ -13,11 +13,14 @@ pub fn start(config: actix_web::web::Data<RwLock<Config>>) {
         loop {
             interval.tick().await;
 
-            let config = config.read().await;
+            let config = state.read().await.config;
             let res = check_heater(&config).await;
-            if let Err(err) = res {
-                error!("Error in heater manager: {}", err);
-                error!("Backtrace:\n{}", err.backtrace());
+            let available = res.is_ok();
+            let mut state = state.write().await;
+            
+            if state.available != available {
+                info!("Heater availability changed to {}", available);
+                state.available = available;
             }
         }
     });
