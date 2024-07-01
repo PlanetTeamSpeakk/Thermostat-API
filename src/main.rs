@@ -82,8 +82,8 @@ async fn send_config_and_state(state: &State, include_config: bool) -> Result<im
         success: true,
         data: Some(ResponseData {
             config: if include_config { Some(state.config) } else { None },
-            available: state.available,
             state: ResponseStateData {
+                available: state.available,
                 temperature,
                 co2,
                 is_heating,
@@ -129,12 +129,12 @@ struct Response {
 #[derive(serde::Deserialize, serde::Serialize)]
 struct ResponseData {
     config: Option<Config>,
-    available: bool,
     state: ResponseStateData,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct ResponseStateData {
+    available: bool,
     temperature: f32,
     co2: i32,
     is_heating: bool,
@@ -162,7 +162,7 @@ impl actix_web::ResponseError for AHError {
     fn status_code(&self) -> actix_web::http::StatusCode {
         actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
     }
-    
+
     fn error_response(&self) -> actix_web::HttpResponse {
         error!("Error on request: {:?}", self);
         actix_web::HttpResponse::InternalServerError()
