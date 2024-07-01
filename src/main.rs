@@ -16,11 +16,11 @@ const PORT: u16 = 5568;
 const PORT: u16 = 5567;
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> anyhow::Result<()> {
     #[cfg(debug_assertions)]
-    std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug");
+    std::env::set_var("RUST_LOG", "debug");
     #[cfg(not(debug_assertions))]
-    std::env::set_var("RUST_LOG", "actix_web=info,actix_server=debug");
+    std::env::set_var("RUST_LOG", "info");
     env_logger::init();
 
     // Read config
@@ -43,17 +43,19 @@ async fn main() -> std::io::Result<()> {
     })
     .bind(("0.0.0.0", PORT))?
     .run()
-    .await
+    .await?;
+    
+    Ok(())
 }
 
 #[get("/")]
-async fn get_config_and_state(config: web::Data<RwLock<Config>>, query: web::Query<GetConfigAndStateQuery>) -> Result<impl Responder, Box<dyn std::error::Error>> {
+async fn get_config_and_state(config: web::Data<RwLock<Config>>, query: web::Query<GetConfigAndStateQuery>) -> Result<impl Responder> {
     let config = config.read().await;
     send_config_and_state(if query.include_config.unwrap_or(false) { Some(&*config) } else { None }).await
 }
 
 #[patch("/")]
-async fn patch_config(config: web::Data<RwLock<Config>>, new_config: web::Json<Config>) -> Result<impl Responder, Box<dyn std::error::Error>> {
+async fn patch_config(config: web::Data<RwLock<Config>>, new_config: web::Json<Config>) -> Result<impl Responder> {
     let new_config = new_config.into_inner();
 
     fs::write(CONFIG_PATH, serde_json::to_string(&new_config)?)?; // Write config
@@ -63,12 +65,12 @@ async fn patch_config(config: web::Data<RwLock<Config>>, new_config: web::Json<C
     *config = new_config;
     info!("Updated config to {:?}", &new_config);
 
-    heatman::check_heater(&new_config).await;
+    heatman::check_heater(&new_config).await?;
 
     send_config_and_state(Some(&new_config)).await
 }
 
-async fn send_config_and_state(config: Option<&Config>) -> Result<impl Responder, Box<dyn std::error::Error>> {
+async fn send_config_and_state(config: Option<&Config>) -> Result<impl Responder> {
     // Get metrics
     let (temperature, co2) = metrics::get_temp_and_co2().await?;
 
@@ -116,4 +118,23 @@ struct GetConfigAndStateResp {
     temperature: f32,
     co2: i32,
     is_heating: bool,
+}
+
+
+pub type Result<T> = std::result::Result<T, AHError>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum AHError {
+    #[error("an unknown error occurred: {0}")]
+    AnyError(#[from] anyhow::Error),
+    #[error("an unknown error occurred during (de)serialization: {0}")]
+    SerdeError(#[from] serde_json::Error),
+    #[error("an unknown IO error occurred: {0}")]
+    IOError(#[from] std::io::Error),
+}
+
+impl actix_web::ResponseError for AHError {
+    fn status_code(&self) -> actix_web::http::StatusCode {
+        actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
+    }
 }

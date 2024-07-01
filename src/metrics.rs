@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 /// Returns the current temperature and CO2 level from the metrics server.
-pub async fn get_temp_and_co2() -> Result<(f32, i32), Box<dyn std::error::Error>> {
+pub async fn get_temp_and_co2() -> anyhow::Result<(f32, i32)> {
     let metrics = get_metrics().await?;
     let temperature = metrics.get("temperature").unwrap().parse::<f32>()?;
     let co2 = metrics.get("co2").unwrap().parse::<f32>()? as i32;
@@ -10,7 +10,7 @@ pub async fn get_temp_and_co2() -> Result<(f32, i32), Box<dyn std::error::Error>
 
 /// Returns a map of all metrics from the Prometheus exporter running on the local machine.
 /// Metrics are provided by https://github.com/PlanetTeamSpeakk/Metrics
-pub async fn get_metrics() -> Result<HashMap<String, String>, reqwest::Error> {
+pub async fn get_metrics() -> anyhow::Result<HashMap<String, String>> {
     let resp = reqwest::get("http://localhost:8000").await?;
     let body = resp.text().await?;
 

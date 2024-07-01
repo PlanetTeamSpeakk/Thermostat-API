@@ -5,7 +5,7 @@ const STATUS_ENDPOINT: &str = concatcp!(PLUG_ENDPOINT, "Shelly.GetStatus"); // S
 const SWITCH_SET_ENDPOINT: &str = concatcp!(PLUG_ENDPOINT, "Switch.Set"); // Set endpoint of the plug. Used to turn the heater on and off.
 
 /// Returns whether the heater is currently on.
-pub async fn is_on() -> Result<bool, reqwest::Error> {
+pub async fn is_on() -> anyhow::Result<bool> {
     let resp = reqwest::get(STATUS_ENDPOINT)
         .await?
         .json::<serde_json::Map<String, serde_json::Value>>()
@@ -19,7 +19,7 @@ pub async fn is_on() -> Result<bool, reqwest::Error> {
 }
 
 /// Turns the heater on or off.
-pub async fn switch(on: bool) -> Result<(), reqwest::Error> {
+pub async fn switch(on: bool) -> anyhow::Result<()> {
     reqwest::get(format!("{}?id=0&on={}", SWITCH_SET_ENDPOINT, on)).await?;
     Ok(())
 }
